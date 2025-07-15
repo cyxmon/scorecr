@@ -1,0 +1,17 @@
+[workspace]
+authors = ["cyxmon <me@yh.zone>"]
+channels = ["conda-forge"]
+name = "ClassCR"
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = ">=3.13.3,<3.14"
+opencv = ">=4.11.0,<5"
+numpy = ">=2.2.5,<3"
+pandas = ">=2.2.3,<3"
+scipy = ">=1.15.2,<2"
+pyinstaller = ">=6.13.0,<7"
+ffmpeg-python = ">=0.2.0,<0.3"
