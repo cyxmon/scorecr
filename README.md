@@ -160,4 +160,3 @@ The executable will be created in the `dist/` directory.
 ## Contact
 
 For questions or suggestions, please contact the developer.
-# scorecr
