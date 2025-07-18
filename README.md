@@ -133,7 +133,7 @@ Below we describe end-to-end usage, steps to preprocess, how to score, and how t
 - Access the filter editor by pressing **f**
 - Adjust HSV parameters with trackbars for real-time preview
 - The editor shows original frame, mask, and filtered result side by side
-- Press **Enter** to apply changes or **ESC** to cancel
+- Press **Enter** or **ESC** to apply changes
 
 ### Scoring
 
