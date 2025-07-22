@@ -211,7 +211,7 @@ class ScoreCR:
         Creates and configures the main OpenCV window for video display and interaction.
         Sets up window size, frame navigation trackbar, and mouse event callbacks.
         """
-        cv2.namedWindow(self.window, cv2.WINDOW_GUI_NORMAL | cv2.WINDOW_KEEPRATIO)
+        cv2.namedWindow(self.window, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(
             self.window,
             int(self.width * self.resize_factor),
