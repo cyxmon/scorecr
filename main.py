@@ -211,7 +211,7 @@ class ScoreCR:
         Creates and configures the main OpenCV window for video display and interaction.
         Sets up window size, frame navigation trackbar, and mouse event callbacks.
         """
-        cv2.namedWindow(self.window, cv2.WINDOW_NORMAL)
+        cv2.namedWindow(self.window, cv2.WINDOW_GUI_NORMAL)
         cv2.resizeWindow(
             self.window,
             int(self.width * self.resize_factor),
@@ -561,11 +561,6 @@ class ScoreCR:
         """
         self.mouse = (x, y)
         match event:
-            case cv2.EVENT_MOUSEWHEEL:
-                if flags > 0:
-                    self.update_frame_index(self.frame_index - self.step)
-                else:
-                    self.update_frame_index(self.frame_index + self.step)
             case cv2.EVENT_LBUTTONDOWN:
                 if flags & cv2.EVENT_FLAG_CTRLKEY:
                     self.mouse_start = (x, y)
@@ -602,39 +597,48 @@ class ScoreCR:
         """
         self.modal()
         filter_window = "Filter Editor"
-        cv2.namedWindow(filter_window, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+        cv2.namedWindow(filter_window, cv2.WINDOW_GUI_NORMAL)
         cv2.resizeWindow(
             filter_window,
             int(self.width * self.resize_factor),
-            int(self.height * self.resize_factor / 3),
+            int(self.height * self.resize_factor / 2),
         )
 
         cv2.createTrackbar(
-            "Hmin", filter_window, self.hsv_lower[0], 179, lambda x: None
+            "Hue Min", filter_window, self.hsv_lower[0], 179, lambda x: None
         )
         cv2.createTrackbar(
-            "Hmax", filter_window, self.hsv_upper[0], 179, lambda x: None
+            "Hue Max", filter_window, self.hsv_upper[0], 179, lambda x: None
         )
         cv2.createTrackbar(
-            "Smin", filter_window, self.hsv_lower[1], 255, lambda x: None
+            "Sat Min", filter_window, self.hsv_lower[1], 255, lambda x: None
         )
         cv2.createTrackbar(
-            "Smax", filter_window, self.hsv_upper[1], 255, lambda x: None
+            "Sat Max", filter_window, self.hsv_upper[1], 255, lambda x: None
         )
         cv2.createTrackbar(
-            "Vmin", filter_window, self.hsv_lower[2], 255, lambda x: None
+            "Val Min", filter_window, self.hsv_lower[2], 255, lambda x: None
         )
         cv2.createTrackbar(
-            "Vmax", filter_window, self.hsv_upper[2], 255, lambda x: None
+            "Val Max", filter_window, self.hsv_upper[2], 255, lambda x: None
         )
 
         while True:
-            h_min = cv2.getTrackbarPos("Hmin", filter_window)
-            h_max = cv2.getTrackbarPos("Hmax", filter_window)
-            s_min = cv2.getTrackbarPos("Smin", filter_window)
-            s_max = cv2.getTrackbarPos("Smax", filter_window)
-            v_min = cv2.getTrackbarPos("Vmin", filter_window)
-            v_max = cv2.getTrackbarPos("Vmax", filter_window)
+            try:
+                if cv2.getWindowProperty(filter_window, cv2.WND_PROP_VISIBLE) < 1:
+                    break
+            except cv2.error:
+                break
+
+            try:
+                h_min = cv2.getTrackbarPos("Hue Min", filter_window)
+                h_max = cv2.getTrackbarPos("Hue Max", filter_window)
+                s_min = cv2.getTrackbarPos("Sat Min", filter_window)
+                s_max = cv2.getTrackbarPos("Sat Max", filter_window)
+                v_min = cv2.getTrackbarPos("Val Min", filter_window)
+                v_max = cv2.getTrackbarPos("Val Max", filter_window)
+            except cv2.error:
+                break
 
             self.hsv_lower = (h_min, s_min, v_min)
             self.hsv_upper = (h_max, s_max, v_max)
@@ -645,7 +649,11 @@ class ScoreCR:
 
             mask_colored = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
             combined = np.hstack([self.frame, mask_colored, result])
-            cv2.imshow(filter_window, combined)
+
+            try:
+                cv2.imshow(filter_window, combined)
+            except cv2.error:
+                break
 
             key = cv2.waitKey(1) & 0xFF
             if key == 27:
