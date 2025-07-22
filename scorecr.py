@@ -114,7 +114,10 @@ class ScoreCR:
             )
             self.update_frame_index(self.frame_index + diff * self.fps * self.step)
         self.key = chr(cv2.waitKey(1) & 0xFF)
-        if not cv2.getWindowProperty(self.window, cv2.WND_PROP_VISIBLE):
+        try:
+            if cv2.getWindowProperty(self.window, cv2.WND_PROP_VISIBLE) < 1:
+                self.run = False
+        except cv2.error:
             self.run = False
         return
 

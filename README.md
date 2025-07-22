@@ -3,7 +3,7 @@
 ## Overview
 
 ### What
-ScoreCR is a tool for rapid manual scoring of bottom-view videos from mouse cylinder rearing experiments. It enables efficient, intuitive frame-based annotation of forepaw placement (left, right, both, or neither) and provides automated detection of potential rearing intervals using computer vision and peak detection algorithms.
+ScoreCR is a tool for rapid manual scoring of bottom-view videos from mouse cylinder rearing experiments. It enables efficient, intuitive frame-based annotation of forepaw placement (left, right, both, or neither) and provides automated detection of potential rearing events using computer vision and peak detection algorithms.
 
 ### Why
 The cylinder rearing test is a widely used behavioral assay for assessing forelimb asymmetry in rodent models of neurological disorders. Manual scoring of these videos is time-consuming and prone to human error. ScoreCR addresses these challenges by **standardizing the scoring process** with automated event detection, **reducing analysis time** through smart navigation and batch labeling, **improving accuracy** with visual feedback and consistent criteria, and **enabling reproducible research** with structured data output.
@@ -71,7 +71,7 @@ python scorecr.py
 #### Building Your Own Executable
 To create a standalone executable:
 ```bash
-pixi run pyinstaller --onefile --noconsole scorecr.py
+pixi run build
 ```
 The executable will be created in the `dist/` directory.
 
