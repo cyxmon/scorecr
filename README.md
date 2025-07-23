@@ -31,7 +31,7 @@ The cylinder rearing test is a widely used behavioral assay for assessing foreli
 3. Navigate to the project directory
 4. Run the application:
    ```bash
-   pixi run python scorecr.py
+   pixi run python main.py
    ```
 
 ### Option 2: Download Pre-built Executable
