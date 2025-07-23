@@ -6,7 +6,7 @@ platforms = ["osx-arm64", "win-64"]
 version = "0.1.0"
 
 [tasks]
-build = "python -m PyInstaller --onefile --windowed --name=ScoreCR --add-data='assets;assets' --hidden-import=cv2 --hidden-import=numpy --hidden-import=pandas --hidden-import=scipy --hidden-import=ffmpeg --hidden-import=tkinter main.py"
+build = "python -m pyinstaller --onefile --windowed main.py"
 
 [dependencies]
 python = ">=3.13.3,<3.14"
