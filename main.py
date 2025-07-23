@@ -265,13 +265,13 @@ class ScoreCR:
             - Space: Toggle play/fast-forward mode
             - w/a/s/d: Label as none/left/both/right rearing
             - 1-9: Set step size for navigation/labeling
-            - Shift+A/D: Step backward/forward by current step size
-            - R: Re-encode current video
+            - q/e: Step backward/forward by current step size
+            - r: Re-encode current video
             - f: Open filter editor
-            - c: Save current score
-            - x: Take screenshot of current frame
-            - z: Exit tool (score is always saved)
-            - e/q: Jump to next/previous potential rearing event
+            - x: Save current score
+            - v: Take screenshot of current frame
+            - ESC/Enter: Exit tool (score is always saved)
+            - z/c: Jump to previous/next potential rearing event
         """
         if self.key == " ":
             self.play = not self.play
@@ -293,27 +293,27 @@ class ScoreCR:
                 self.score.loc[self.frame_index, "label"] = "r"
                 self.update_frame_index(self.frame_index + 1)
 
-        elif self.key and self.key.isdigit() and 0 < int(self.key) < 10:
-            self.step = int(self.key)
-
-        elif self.key == "R":
+        elif self.key == "r":
             self.reencoder()
-
         elif self.key == "f":
             self.filter_editor()
 
-        elif self.key == "A":
+        elif self.key and self.key.isdigit() and 0 < int(self.key) < 10:
+            self.step = int(self.key)
+        elif self.key == "q":
             self.update_frame_index(self.frame_index - self.step)
-        elif self.key == "D":
+        elif self.key == "e":
             self.update_frame_index(self.frame_index + self.step)
-        elif self.key == "c":
-            self.save()
         elif self.key == "x":
+            self.save()
+        elif self.key == "v":
             self.screenshot()
-        elif self.key == "z":
+        elif ord(self.key) == 27:
+            self.run = False
+        elif ord(self.key) == 13:
             self.run = False
         elif (
-            self.key == "e"
+            self.key == "c"
             and self.properties is not None
             and not self.properties.empty
         ):
@@ -325,7 +325,7 @@ class ScoreCR:
             )
             self.update_frame_index(self.properties.loc[frame_index, "left_ips"])
         elif (
-            self.key == "q"
+            self.key == "z"
             and self.properties is not None
             and not self.properties.empty
         ):
@@ -546,10 +546,7 @@ class ScoreCR:
     def click_event(self, event, x, y, flags, param):
         """
         Handles all mouse events for frame navigation and ROI selection.
-        - Left click: step backward
-        - Right click: step forward
-        - Mouse wheel: step forward/backward
-        - Ctrl+Left click drag: select circular ROI for preprocessing
+        - Shift+Left click drag: select circular ROI for preprocessing
         - Left button release: complete ROI selection
 
         Args:
@@ -562,15 +559,11 @@ class ScoreCR:
         self.mouse = (x, y)
         match event:
             case cv2.EVENT_LBUTTONDOWN:
-                if flags & cv2.EVENT_FLAG_CTRLKEY:
+                if flags & cv2.EVENT_FLAG_SHIFTKEY:
                     self.mouse_start = (x, y)
-                else:
-                    self.update_frame_index(self.frame_index - self.step)
             case cv2.EVENT_RBUTTONDOWN:
                 if flags & cv2.EVENT_FLAG_LBUTTON:
                     self.mouse_start = None
-                else:
-                    self.update_frame_index(self.frame_index + self.step)
             case cv2.EVENT_LBUTTONUP:
                 if self.mouse_start:
                     self.mouse_end = (x, y)
@@ -701,8 +694,27 @@ class ScoreCR:
         Saves the current scoring results to the score CSV file.
         The file includes frame-wise labels and summary counts for each label type.
         """
+        all_labels = [col for col in self.score.columns if col != "label"]
+        for label in all_labels:
+            self.score.loc[0, label] = 0
+            self.score.loc[1, label] = 0
+
         for i in set(self.score["label"]):
             self.score.loc[0, i] = self.score["label"].value_counts()[i]
+
+        labels = self.score["label"].tolist()
+        runs = {}
+        if labels:
+            current_label = labels[0]
+            for label in labels[1:]:
+                if label != current_label:
+                    runs[current_label] = runs.get(current_label, 0) + 1
+                    current_label = label
+            runs[current_label] = runs.get(current_label, 0) + 1
+
+        for label, count in runs.items():
+            self.score.loc[1, label] = count
+
         self.score.to_csv(self.score_path, index=False)
         return
 
