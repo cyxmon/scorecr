@@ -26,9 +26,15 @@ The cylinder rearing test is a widely used behavioral assay for assessing foreli
 
 ### Option 1: Using Pixi (Recommended)
 
-1. Install [Pixi](https://pixi.sh/) if you haven't already
+1. Install [Pixi](https://pixi.sh/) and [Git](https://git-scm.com) if you haven't already
 2. Clone or download this repository
+   ```bash
+   git clone https://github.com/cyxmon/scorecr.git
+   ```
 3. Navigate to the project directory
+   ```bash
+   cd scorecr
+   ```
 4. Run the application:
    ```bash
    pixi run python main.py
@@ -61,18 +67,18 @@ This project uses [Pixi](https://pixi.sh/) for dependency management. The follow
 
 ### How to Run
 
+#### With Pixi:
+
+```bash
+pixi run python main.py
+```
+
 #### Pre-built Executable:
 
 Simply double-click the downloaded executable file, or run from terminal:
 
 - **macOS**: `./scorecr.app/Contents/MacOS/scorecr`
 - **Windows**: `scorecr.exe`
-
-#### With Pixi:
-
-```bash
-pixi run python main.py
-```
 
 #### With standard Python:
 
