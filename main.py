@@ -1,6 +1,6 @@
 from pathlib import Path
 from time import time
-from tkinter import filedialog
+from tkinter import filedialog, simpledialog
 
 import cv2
 import ffmpeg
@@ -48,6 +48,8 @@ class ScoreCR:
             self.mouse_start = None
             self.mouse_end = None
 
+            self.view_mode = "bottom"
+            self.rois = []
             self.hsv_lower = (0, 0, 0)
             self.hsv_upper = (180, 255, 50)
 
@@ -121,35 +123,62 @@ class ScoreCR:
             self.run = False
         return
 
-    def extract_circle(self, frame, center, radius):
+    def extract_roi(self, frame, rois):
         """
-        Extracts a circular region of interest (ROI) from the frame.
-        The ROI is centered at 'center' with the specified 'radius'.
-        Returns a new image with the circular region, background set to white.
+        Extracts a region of interest (ROI) from the frame.
+        Supports single circle (bottom mode) or annulus (top mode).
 
         Args:
             frame (numpy.ndarray): Input frame
-            center (tuple): (x, y) coordinates of circle center
-            radius (int): Radius of the circle
+            rois (list): List of (center, radius) tuples
 
         Returns:
-            numpy.ndarray: Extracted circular region
+            numpy.ndarray: Extracted region
         """
-        mask = cv2.circle(
-            np.zeros(frame.shape[:2], dtype=np.uint8),
-            center,
-            radius,
-            255,
-            -1,
-        )
+        mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+
+        if len(rois) == 1:
+            center, radius = rois[0]
+            cv2.circle(mask, center, radius, 255, -1)
+            ref_center = center
+            ref_radius = radius
+        elif len(rois) == 2:
+            sorted_rois = sorted(rois, key=lambda x: x[1], reverse=True)
+            outer_c, outer_r = sorted_rois[0]
+            inner_c, inner_r = sorted_rois[1]
+
+            cv2.circle(mask, outer_c, outer_r, 255, -1)
+            cv2.circle(mask, inner_c, inner_r, 0, -1)
+
+            ref_center = outer_c
+            ref_radius = outer_r
+        else:
+            return frame
+
         ys, xs = np.where(mask > 0)
+        if len(ys) == 0 or len(xs) == 0:
+            return np.full(
+                (ref_radius * 2 + 1, ref_radius * 2 + 1, 3), 255, dtype=np.uint8
+            )
+
         shape = (
-            (radius * 2 + 1, radius * 2 + 1)
+            (ref_radius * 2 + 1, ref_radius * 2 + 1)
             if frame.ndim == 2
-            else (radius * 2 + 1, radius * 2 + 1, frame.shape[2])
+            else (ref_radius * 2 + 1, ref_radius * 2 + 1, frame.shape[2])
         )
         new_frame = np.full(shape, 255, dtype=np.uint8)
-        new_frame[ys - center[1] + radius, xs - center[0] + radius] = frame[ys, xs]
+
+        y_indices = ys - ref_center[1] + ref_radius
+        x_indices = xs - ref_center[0] + ref_radius
+
+        valid = (
+            (y_indices >= 0)
+            & (y_indices < shape[0])
+            & (x_indices >= 0)
+            & (x_indices < shape[1])
+        )
+
+        new_frame[y_indices[valid], x_indices[valid]] = frame[ys[valid], xs[valid]]
         return new_frame
 
     def modal(self):
@@ -161,15 +190,14 @@ class ScoreCR:
         cv2.imshow(self.window, frame)
         cv2.waitKey(1)
 
-    def preprocess(self, center, radius):
+    def preprocess(self, rois):
         """
         Preprocesses the video to identify potential rearing events.
-        Applies circular ROI extraction, downsampling, color thresholding, and peak detection.
+        Applies ROI extraction (circle or annulus), downsampling, color thresholding, and peak detection.
         Saves detected event properties for navigation and review.
 
         Args:
-            center (tuple): (x, y) coordinates of circle center
-            radius (int): Radius of the circular ROI
+            rois (list): List of (center, radius) tuples defining the ROI
         """
         self.modal()
         downsample_rate = int(self.fps / 5)
@@ -186,7 +214,7 @@ class ScoreCR:
                 ret, frame = self.video.read()
             if i % downsample_rate != 0:
                 continue
-            frame = self.extract_circle(frame, center, radius)
+            frame = self.extract_roi(frame, rois)
             frame = cv2.resize(frame, dim, interpolation=cv2.INTER_NEAREST)
             blur = cv2.GaussianBlur(frame, (5, 5), 0)
             hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)
@@ -195,8 +223,11 @@ class ScoreCR:
                 np.sum(mask) / np.prod(dim) / 255
             )
 
+        signal = (
+            -stats["percentage"] if self.view_mode == "bottom" else stats["percentage"]
+        )
         peaks, properties = find_peaks(
-            -stats["percentage"],
+            signal,
             prominence=max(stats["percentage"]) * 0.3,
             width=(None, self.fps * 5),
             rel_height=0.5,
@@ -268,6 +299,7 @@ class ScoreCR:
             - q/e: Step backward/forward by current step size
             - r: Re-encode current video
             - f: Open filter editor
+            - t: Toggle view mode (Bottom/Top)
             - x: Save current score
             - v: Take screenshot of current frame
             - ESC/Enter: Exit tool (score is always saved)
@@ -297,6 +329,9 @@ class ScoreCR:
             self.reencoder()
         elif self.key == "f":
             self.filter_editor()
+        elif self.key == "t":
+            self.view_mode = "top" if self.view_mode == "bottom" else "bottom"
+            self.rois = []
 
         elif self.key and self.key.isdigit() and 0 < int(self.key) < 10:
             self.step = int(self.key)
@@ -353,27 +388,40 @@ class ScoreCR:
 
     def draw_circle(self):
         """
-        Handles interactive selection and drawing of the circular ROI for preprocessing.
-        Draws a green circle overlay during selection. Triggers preprocessing when selection is complete.
+        Handles interactive selection and drawing of the ROI for preprocessing.
+        Draws green circle overlays during selection.
+        In 'bottom' mode: triggers preprocessing after one circle.
+        In 'top' mode: triggers preprocessing after two circles (annulus).
         """
+        for center, radius in self.rois:
+            cv2.circle(self.frame, center, radius, (0, 255, 0), 1)
+
         if self.mouse_start:
             end = self.mouse_end or self.mouse
-            bottom_center = (
+            current_center = (
                 int((self.mouse_start[0] + end[0]) / 2),
                 int((self.mouse_start[1] + end[1]) / 2),
             )
-            bottom_radius = int(
+            current_radius = int(
                 np.sqrt(
                     (end[0] - self.mouse_start[0]) ** 2
                     + (end[1] - self.mouse_start[1]) ** 2
                 )
                 / 2,
             )
-            cv2.circle(self.frame, bottom_center, bottom_radius, (0, 255, 0), 1)
+            cv2.circle(self.frame, current_center, current_radius, (0, 255, 0), 1)
+
             if self.mouse_end:
-                self.preprocess(bottom_center, bottom_radius)
+                self.rois.append((current_center, current_radius))
                 self.mouse_start = None
                 self.mouse_end = None
+
+                if self.view_mode == "bottom":
+                    self.preprocess(self.rois)
+                    self.rois = []
+                elif self.view_mode == "top" and len(self.rois) == 2:
+                    self.preprocess(self.rois)
+                    self.rois = []
         return
 
     def draw_overlay(self):
@@ -394,6 +442,23 @@ class ScoreCR:
             self.frame,
             str(self.step),
             (self.resize(20), self.height - self.resize(20)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            self.resize(2),
+            (255, 255, 255),
+            self.resize(4),
+        )
+
+        cv2.rectangle(
+            self.frame,
+            (self.width - self.resize(70), self.height - self.resize(70)),
+            (self.width - self.resize(10), self.height - self.resize(10)),
+            (0, 0, 0),
+            -1,
+        )
+        cv2.putText(
+            self.frame,
+            self.view_mode[0].upper(),
+            (self.width - self.resize(60), self.height - self.resize(20)),
             cv2.FONT_HERSHEY_SIMPLEX,
             self.resize(2),
             (255, 255, 255),
@@ -548,6 +613,7 @@ class ScoreCR:
         Handles all mouse events for frame navigation and ROI selection.
         - Shift+Left click drag: select circular ROI for preprocessing
         - Left button release: complete ROI selection
+        - Right click: cancel current drag or clear confirmed ROIs
 
         Args:
             event: OpenCV mouse event type
@@ -562,8 +628,10 @@ class ScoreCR:
                 if flags & cv2.EVENT_FLAG_SHIFTKEY:
                     self.mouse_start = (x, y)
             case cv2.EVENT_RBUTTONDOWN:
-                if flags & cv2.EVENT_FLAG_LBUTTON:
+                if self.mouse_start:
                     self.mouse_start = None
+                else:
+                    self.rois = []
             case cv2.EVENT_LBUTTONUP:
                 if self.mouse_start:
                     self.mouse_end = (x, y)
@@ -575,10 +643,25 @@ class ScoreCR:
         Closes current session and opens the newly encoded video.
         """
         self.modal()
+
+        total_seconds = int(self.frame_count / self.fps)
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        seconds = total_seconds % 60
+        video_duration = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+        duration = simpledialog.askstring(
+            "Re-encode Duration",
+            f"Enter duration (HH:MM:SS).\nVideo length: {video_duration}",
+            initialvalue=video_duration,
+        )
+        if not duration:
+            return
+
         new_video_path = self.video_path.with_name(
             f"{self.video_path.stem}_reencoded.mp4"
         )
-        self.reencode_video(self.video_path, new_video_path)
+        self.reencode_video(self.video_path, new_video_path, duration)
         self.close()
         ScoreCR(new_video_path)
 
@@ -657,14 +740,15 @@ class ScoreCR:
         cv2.destroyWindow(filter_window)
         return
 
-    def reencode_video(self, video_path, new_video_path):
+    def reencode_video(self, video_path, new_video_path, duration="00:05:00"):
         """
         Re-encodes a video file with specified parameters.
-        Crops to square aspect ratio, scales to 720x720, and limits to 5 minutes at 15fps.
+        Crops to square aspect ratio, scales to 720x720, and limits to specified duration at 15fps.
 
         Args:
             video_path (str): Path to input video file
             new_video_path (str): Path to output video file
+            duration (str): Duration of the output video (HH:MM:SS)
         """
         probe = ffmpeg.probe(video_path)
         video_info = [
@@ -683,7 +767,7 @@ class ScoreCR:
             ffmpeg.input(video_path)
             .filter("crop", crop_size, crop_size, x_offset, y_offset)
             .filter("scale", 720, 720)
-            .output(str(new_video_path), vcodec="libx264", t="00:05:00", r=15)
+            .output(str(new_video_path), vcodec="libx264", t=duration, r=15)
             .overwrite_output()
             .run()
         )
