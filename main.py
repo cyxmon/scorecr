@@ -1,6 +1,7 @@
 from pathlib import Path
 from time import time
 from tkinter import filedialog, simpledialog
+import json
 
 import cv2
 import ffmpeg
@@ -52,15 +53,25 @@ class ScoreCR:
             self.rois = []
             self.hsv_lower = (0, 0, 0)
             self.hsv_upper = (180, 255, 50)
+            self.peak_params = {
+                "bottom": {"prominence": 0.3, "width": 5.0, "rel_height": 0.5},
+                "top": {"prominence": 0.3, "width": 5.0, "rel_height": 0.5},
+            }
 
             self.score_path = self.video_path.with_name(
                 f"{self.video_path.stem}_score.csv"
             )
-            self.properties_path = self.video_path.with_name(
-                f"{self.video_path.stem}_properties.csv"
+            self.events_path = self.video_path.with_name(
+                f"{self.video_path.stem}_events.csv"
+            )
+            self.signal_path = self.video_path.with_name(
+                f"{self.video_path.stem}_signal.csv"
             )
             self.screenshot_path = self.video_path.with_name(
                 f"{self.video_path.stem}_screenshot.png"
+            )
+            self.settings_path = self.video_path.with_name(
+                f"{self.video_path.stem}_settings.json"
             )
 
             self.score = (
@@ -71,17 +82,40 @@ class ScoreCR:
                     columns=["label", "l", "r", "b", "n"],
                 )
             )
-            self.properties = (
-                pd.read_csv(self.properties_path)
-                if self.properties_path.exists()
-                else None
+            self.events = (
+                pd.read_csv(self.events_path) if self.events_path.exists() else None
             )
 
             self.frame_index = (
                 self.score[self.score["label"].ne("n")].last_valid_index() or 0
             )
+            self.load_settings()
             self.main()
         return
+
+    def load_settings(self):
+        if self.settings_path.exists():
+            try:
+                with open(self.settings_path, "r") as f:
+                    settings = json.load(f)
+                    self.hsv_lower = tuple(settings.get("hsv_lower", self.hsv_lower))
+                    self.hsv_upper = tuple(settings.get("hsv_upper", self.hsv_upper))
+                    self.view_mode = settings.get("view_mode", self.view_mode)
+                    self.step = settings.get("step", self.step)
+                    self.peak_params = settings.get("peak_params", self.peak_params)
+            except Exception:
+                pass
+
+    def save_settings(self):
+        settings = {
+            "hsv_lower": self.hsv_lower,
+            "hsv_upper": self.hsv_upper,
+            "view_mode": self.view_mode,
+            "step": self.step,
+            "peak_params": self.peak_params,
+        }
+        with open(self.settings_path, "w") as f:
+            json.dump(settings, f)
 
     def main(self):
         """
@@ -195,6 +229,7 @@ class ScoreCR:
         Preprocesses the video to identify potential rearing events.
         Applies ROI extraction (circle or annulus), downsampling, color thresholding, and peak detection.
         Saves detected event properties for navigation and review.
+        Also saves the raw signal data to a CSV file for debugging.
 
         Args:
             rois (list): List of (center, radius) tuples defining the ROI
@@ -226,14 +261,24 @@ class ScoreCR:
         signal = (
             -stats["percentage"] if self.view_mode == "bottom" else stats["percentage"]
         )
-        peaks, properties = find_peaks(
-            signal,
-            prominence=max(stats["percentage"]) * 0.3,
-            width=(None, self.fps * 5),
-            rel_height=0.5,
+        stats.to_csv(self.signal_path, index=False)
+
+        params = self.peak_params.get(
+            self.view_mode, {"prominence": 0.3, "width": 5.0, "rel_height": 0.5}
         )
-        self.properties = pd.DataFrame(properties) * downsample_rate
-        self.properties.to_csv(self.properties_path, index=False)
+        base_val = np.percentile(stats["percentage"], 98)
+        prominence = base_val * params["prominence"]
+        width = (None, self.fps * params["width"])
+        rel_height = params["rel_height"]
+
+        peaks, events = find_peaks(
+            signal,
+            prominence=prominence,
+            width=width,
+            rel_height=rel_height,
+        )
+        self.events = pd.DataFrame(events) * downsample_rate
+        self.events.to_csv(self.events_path, index=False)
         self.update_frame_index(0)
         return
 
@@ -299,6 +344,7 @@ class ScoreCR:
             - q/e: Step backward/forward by current step size
             - r: Re-encode current video
             - f: Open filter editor
+            - p: Open peak finding settings editor
             - t: Toggle view mode (Bottom/Top)
             - x: Save current score
             - v: Take screenshot of current frame
@@ -329,6 +375,8 @@ class ScoreCR:
             self.reencoder()
         elif self.key == "f":
             self.filter_editor()
+        elif self.key == "p":
+            self.peak_settings_editor()
         elif self.key == "t":
             self.view_mode = "top" if self.view_mode == "bottom" else "bottom"
             self.rois = []
@@ -347,27 +395,19 @@ class ScoreCR:
             self.run = False
         elif ord(self.key) == 13:
             self.run = False
-        elif (
-            self.key == "c"
-            and self.properties is not None
-            and not self.properties.empty
-        ):
+        elif self.key == "c" and self.events is not None and not self.events.empty:
             frame_index = (
-                self.properties[
-                    self.properties["left_ips"].gt(self.frame_index + 1)
+                self.events[
+                    self.events["left_ips"].gt(self.frame_index + 1)
                 ].first_valid_index()
                 or 0
             )
-            self.update_frame_index(self.properties.loc[frame_index, "left_ips"])
-        elif (
-            self.key == "z"
-            and self.properties is not None
-            and not self.properties.empty
-        ):
-            frame_index = self.properties[
-                self.properties["left_ips"].lt(self.frame_index)
-            ].last_valid_index() or -1 % len(self.properties)
-            self.update_frame_index(self.properties.loc[frame_index, "left_ips"])
+            self.update_frame_index(self.events.loc[frame_index, "left_ips"])
+        elif self.key == "z" and self.events is not None and not self.events.empty:
+            frame_index = self.events[
+                self.events["left_ips"].lt(self.frame_index)
+            ].last_valid_index() or -1 % len(self.events)
+            self.update_frame_index(self.events.loc[frame_index, "left_ips"])
 
         if ord(self.key) != 255:
             self.stamp = [time(), self.frame_index]
@@ -545,13 +585,13 @@ class ScoreCR:
             (0, 0, 0),
             -1,
         )
-        if self.properties is not None:
-            for i in range(len(self.properties)):
+        if self.events is not None:
+            for i in range(len(self.events)):
                 cv2.rectangle(
                     self.frame,
                     (
                         int(
-                            self.properties.loc[i, "left_ips"]
+                            self.events.loc[i, "left_ips"]
                             / self.frame_count
                             * self.width
                         ),
@@ -559,7 +599,7 @@ class ScoreCR:
                     ),
                     (
                         int(
-                            self.properties.loc[i, "right_ips"]
+                            self.events.loc[i, "right_ips"]
                             / self.frame_count
                             * self.width
                         ),
@@ -737,7 +777,54 @@ class ScoreCR:
             elif key == 13:
                 break
 
+        self.save_settings()
         cv2.destroyWindow(filter_window)
+        return
+
+    def peak_settings_editor(self):
+        """
+        Opens dialogs to edit peak finding parameters for the current view mode.
+        """
+        self.modal()
+        params = self.peak_params.get(
+            self.view_mode, {"prominence": 0.3, "width": 5.0, "rel_height": 0.5}
+        )
+
+        prominence = simpledialog.askfloat(
+            f"Peak Settings ({self.view_mode})",
+            "Prominence Factor (0.0 - 1.0):\n(Relative to max signal)",
+            initialvalue=params["prominence"],
+            minvalue=0.0,
+            maxvalue=1.0,
+        )
+        if prominence is None:
+            return
+
+        width = simpledialog.askfloat(
+            f"Peak Settings ({self.view_mode})",
+            "Max Width (seconds):",
+            initialvalue=params["width"],
+            minvalue=0.1,
+        )
+        if width is None:
+            return
+
+        rel_height = simpledialog.askfloat(
+            f"Peak Settings ({self.view_mode})",
+            "Relative Height (0.0 - 1.0):\n(Height at which to measure width)",
+            initialvalue=params["rel_height"],
+            minvalue=0.0,
+            maxvalue=1.0,
+        )
+        if rel_height is None:
+            return
+
+        self.peak_params[self.view_mode] = {
+            "prominence": prominence,
+            "width": width,
+            "rel_height": rel_height,
+        }
+        self.save_settings()
         return
 
     def reencode_video(self, video_path, new_video_path, duration="00:05:00"):
@@ -806,6 +893,7 @@ class ScoreCR:
         """
         Finalizes the session: saves results, releases video resources, and closes all windows.
         """
+        self.save_settings()
         self.save()
         self.video.release()
         cv2.destroyAllWindows()
