@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [tasks]
 build = """
-pyinstaller --windowed --onefile main.py
+pyinstaller --windowed --onefile --collect-all cv2 main.py
 """
 
 [dependencies]
